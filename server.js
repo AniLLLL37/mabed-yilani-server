@@ -48,7 +48,7 @@ io.on('connection', (socket) => {
         snakes[socket.id] = {
             id: socket.id,
             name: name,
-            color: COLORS[Math.floor(Math.random() * COLORS.length)],
+            color: data.color || COLORS[Math.floor(Math.random() * COLORS.length)],
             x: Math.random() * WORLD_SIZE,
             y: Math.random() * WORLD_SIZE,
             angle: Math.random() * Math.PI * 2,
@@ -75,6 +75,10 @@ io.on('connection', (socket) => {
             s.targetAngle = data.angle;
             s.isBoosting = data.boosting;
         }
+    });
+
+    socket.on('ping_req', () => {
+        socket.emit('ping_res');
     });
 
     socket.on('disconnect', () => {
