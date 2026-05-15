@@ -1,7 +1,7 @@
 {
-  "name": "mabed-io-server",
+  "name": "mabed-yilani-server",
   "version": "1.0.0",
-  "description": "Multiplayer Server for Mabed.io",
+  "description": "Multiplayer Server for MabedYilani.io",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
