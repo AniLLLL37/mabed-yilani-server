@@ -12,14 +12,20 @@ const io = new Server(server, {
     cors: { origin: "*", methods: ["GET", "POST"] }
 });
 
+app.get('/api/stats', (req, res) => {
+    res.set('Cache-Control', 'public, max-age=10'); // 10 saniye önbellek (Sunucuyu yormaması için)
+    res.json({ players: Object.keys(snakes).length });
+});
+
 const WORLD_SIZE = 4000;
-const SEGMENT_SPACING = 5; // Kaç geçmiş pozisyonda bir gövde eklenecek
+const SEGMENT_SPACING = 3; // Daha akıcı hareket için aralığı düşürdük
 const BASE_SPEED = 4.0;
-const BOOST_SPEED = 8.0;
+const BOOST_SPEED = 7.0; // Hızı biraz düşürüp akıcılığı koruduk
 
 let snakes = {};
 let foods = [];
 let foodIdCounter = 0;
+const CORPSE_FOOD_LIFETIME_MS = 5 * 60 * 1000; // 5 dakika sonra ölü yılan yemleri kaybolur
 
 // Renk paleti
 const COLORS = ['#FF0055', '#00F2FF', '#7000FF', '#FFD700', '#00FF41', '#FF8C00', '#FF00FF'];
@@ -31,7 +37,7 @@ function spawnFood(count) {
             id: foodIdCounter++,
             x: Math.random() * WORLD_SIZE,
             y: Math.random() * WORLD_SIZE,
-            r: Math.random() * 3 + 2, // 2-5 arası yarıçap
+            r: Math.random() * 5 + 3, // Yemler büyütüldü (3-8 yarıçap)
             c: COLORS[Math.floor(Math.random() * COLORS.length)]
         });
     }
@@ -91,8 +97,9 @@ io.on('connection', (socket) => {
 
 // Yılan ölünce yeme dönüşsün
 function spawnCorpse(snake) {
-    let dropCount = Math.floor(snake.score / 2);
+    let dropCount = Math.min(50, Math.floor(snake.score / 3)); // Maksimum 50 yem, 3'e böl
     let segments = getSegments(snake);
+    let now = Date.now();
     for(let i=0; i<dropCount; i++) {
         if(segments.length === 0) break;
         let seg = segments[i % segments.length];
@@ -100,8 +107,10 @@ function spawnCorpse(snake) {
             id: foodIdCounter++,
             x: seg.x + (Math.random()*20 - 10),
             y: seg.y + (Math.random()*20 - 10),
-            r: 6, // Ölü yılan yemi daha büyüktür
-            c: snake.color
+            r: Math.random() * 3 + 4, // Ölü yılan yemleri (4-7 yarıçap)
+            c: snake.color,
+            corpse: true, // Ölü yılan yemi olduğunu işaretle
+            spawnedAt: now // Oluşturulma zamanı (5 dk sonra silinecek)
         });
     }
 }
@@ -109,7 +118,7 @@ function spawnCorpse(snake) {
 // Kuyruk parçalarını history'den hesapla
 function getSegments(snake) {
     let segments = [];
-    let length = Math.floor(snake.score / 2) + 5; // Skora göre uzunluk
+    let length = Math.floor((Math.floor(snake.score / 2) + 5) * 1.6); // Spacing düştüğü için çarpan eklendi
     for (let i = 0; i < length; i++) {
         let histIndex = i * SEGMENT_SPACING;
         if (histIndex < snake.history.length) {
@@ -134,7 +143,9 @@ setInterval(() => {
             if(Math.random() < 0.2) {
                 let tail = s.history[s.history.length-1];
                 if(tail) {
-                    foods.push({ id: foodIdCounter++, x: tail.x, y: tail.y, r: 3, c: s.color });
+                    let drop = { id: foodIdCounter++, x: tail.x, y: tail.y, r: Math.random() * 2 + 3, c: s.color };
+                    foods.push(drop);
+                    io.emit('new_foods', [drop]); // Gecikmeyi önlemek için arkaya düşen yemi anında herkese yolla
                 }
             }
         }
@@ -163,7 +174,7 @@ setInterval(() => {
 
         // Geçmişi kaydet (Kuyruk için)
         s.history.unshift({ x: s.x, y: s.y });
-        let maxLength = (Math.floor(s.score / 2) + 5) * SEGMENT_SPACING + 1;
+        let maxLength = Math.floor((Math.floor(s.score / 2) + 5) * 1.6) * SEGMENT_SPACING + 1;
         if (s.history.length > maxLength) {
             s.history.pop();
         }
@@ -176,7 +187,7 @@ setInterval(() => {
             let dx = s.x - f.x;
             let dy = s.y - f.y;
             if (dx*dx + dy*dy < (headR + f.r) * (headR + f.r)) {
-                s.score += (f.r > 5 ? 5 : 1); // Büyük yemde daha çok skor
+                s.score += Math.min(1.5, Math.max(0.5, f.r * 0.25)); // DENGELENDİ: Yem başına 0.5-1.5 skor (eskisi 1-4.8 idi)
                 foods.splice(i, 1);
                 io.emit('food_eaten', f.id); // Sadece yenen yemi silmesi için client'a haber ver
             }
@@ -200,6 +211,21 @@ setInterval(() => {
             }
         }
     });
+
+    // Süresi dolan ölü yılan yemlerini temizle (5 dakika)
+    let now = Date.now();
+    let expiredIds = [];
+    foods = foods.filter(f => {
+        if (f.corpse && (now - f.spawnedAt) > CORPSE_FOOD_LIFETIME_MS) {
+            expiredIds.push(f.id);
+            return false;
+        }
+        return true;
+    });
+    // Süresi dolan yemleri tüm istemcilere bildir
+    if (expiredIds.length > 0) {
+        expiredIds.forEach(id => io.emit('food_eaten', id));
+    }
 
     // Eksilen yemleri tamamla
     if (foods.length < 500) spawnFood(50);
