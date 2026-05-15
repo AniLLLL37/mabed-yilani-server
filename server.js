@@ -137,7 +137,7 @@ setInterval(() => {
         let speed = BASE_SPEED;
         if (s.isBoosting && s.score > 15) {
             speed = BOOST_SPEED;
-            s.score -= 0.2; // Hızlanınca skor düşer (Mekanik)
+            s.score -= 0.05; // DENGELENDİ: Eskiden saniyede 6 skor düşüyordu (0.2), şimdi saniyede 1.5 skor düşecek (0.05)
             
             // Hızlanırken arkada yem bırak
             if(Math.random() < 0.2) {
@@ -187,7 +187,7 @@ setInterval(() => {
             let dx = s.x - f.x;
             let dy = s.y - f.y;
             if (dx*dx + dy*dy < (headR + f.r) * (headR + f.r)) {
-                s.score += Math.min(1.5, Math.max(0.5, f.r * 0.25)); // DENGELENDİ: Yem başına 0.5-1.5 skor (eskisi 1-4.8 idi)
+                s.score += Math.min(3.0, Math.max(1.0, f.r * 0.5)); // DENGELENDİ: Yemler artık 1 ile 3 arası skor verecek (çok daha doyurucu)
                 foods.splice(i, 1);
                 io.emit('food_eaten', f.id); // Sadece yenen yemi silmesi için client'a haber ver
             }
